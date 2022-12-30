@@ -332,7 +332,12 @@ window.addEventListener("pywebviewready", () => {
         const results = await pywebview.api.process();
         if (results) {
           background.src = results.image_uri;
-          animate_vrm(current_vrm, results, width, height);
+          if (results.pose_landmarks) {
+            renderer_canvas.hidden = false;
+            animate_vrm(current_vrm, results, width, height);
+          } else {
+            renderer_canvas.hidden = true;
+          }
         } else {
           break;
         }
