@@ -3,7 +3,7 @@ const clamp = Kalidokit.Utils.clamp;
 const lerp = Kalidokit.Vector.lerp;
 
 let open_video_btn = document.getElementById("open-video-btn");
-let background = document.getElementById("background");
+let result = document.getElementById("result");
 let renderer_canvas = document.getElementById("renderer");
 
 // vrm
@@ -13,6 +13,7 @@ let current_vrm;
 const renderer = new THREE.WebGLRenderer({
   alpha: true,
   canvas: renderer_canvas,
+  preserveDrawingBuffer: true,
 });
 renderer.setClearColor(0x000000, 0);
 renderer.setPixelRatio(window.devicePixelRatio);
@@ -331,12 +332,15 @@ window.addEventListener("pywebviewready", () => {
       while (true) {
         const results = await pywebview.api.process();
         if (results) {
-          background.src = results.image_uri;
+          result.src = results.image_uri;
           if (results.pose_landmarks) {
             renderer_canvas.hidden = false;
             animate_vrm(current_vrm, results, width, height);
+            const render_result = renderer_canvas.toDataURL("image/png");
+            await pywebview.api.combine_result(render_result);
           } else {
             renderer_canvas.hidden = true;
+            await pywebview.api.combine_result(null);
           }
         } else {
           break;
@@ -347,8 +351,8 @@ window.addEventListener("pywebviewready", () => {
 });
 
 const initialize = (width, height) => {
-  background.width = width;
-  background.height = height;
+  result.width = width;
+  result.height = height;
   renderer_canvas.width = width;
   renderer_canvas.height = height;
   renderer.setSize(renderer_canvas.width, renderer_canvas.height);

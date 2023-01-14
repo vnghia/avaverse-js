@@ -34,8 +34,15 @@ class Api:
             )
             if result:
                 self.cap = cv2.VideoCapture(result[0])
-                self.width = self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)
-                self.height = self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+                self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                self.fps = self.cap.get(cv2.CAP_PROP_FPS)
+                self.writer = cv2.VideoWriter(
+                    "output.mp4",
+                    cv2.VideoWriter_fourcc(*"MP4V"),
+                    self.fps,
+                    (self.width, self.height),
+                )
                 return (self.width, self.height)
 
     @staticmethod
@@ -53,16 +60,20 @@ class Api:
         if self.cap:
             success, image = self.cap.read()
             if not success:
+                self.writer.release()
                 return None
-            image.flags.writeable = False
-            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            self.current_image = image
+            self.current_image.flags.writeable = False
+            image_rgb = cv2.cvtColor(self.current_image, cv2.COLOR_BGR2RGB)
             result = self.holistic.process(image_rgb)
             if result.segmentation_mask is not None:
                 mask = result.segmentation_mask.astype(np.uint8)
-                image = cv2.inpaint(image, mask, 5, flags=cv2.INPAINT_TELEA)
+                self.current_image = cv2.inpaint(
+                    self.current_image, mask, 5, flags=cv2.INPAINT_TELEA
+                )
             image_uri = (
                 "data:image/png;base64,"
-                + base64.b64encode(cv2.imencode(".png", image)[1]).decode()
+                + base64.b64encode(cv2.imencode(".png", self.current_image)[1]).decode()
             )
             return {
                 "image_uri": image_uri,
@@ -79,6 +90,37 @@ class Api:
                 ),
             }
 
+    def combine_result(self, render_result):
+        if render_result:
+            render_array = np.asarray(
+                bytearray(
+                    base64.b64decode(render_result[len("data:image/png;base64,") :])
+                ),
+                dtype=np.uint8,
+            )
+            render_image = cv2.resize(
+                cv2.imdecode(
+                    render_array,
+                    cv2.IMREAD_UNCHANGED,
+                ),
+                (self.width, self.height),
+            )
+            mask = np.tile(
+                np.expand_dims(render_image[..., 3] == 0, axis=-1), (1, 1, 4)
+            )
+            current_image = np.dstack(
+                (
+                    self.current_image,
+                    255 * np.ones((self.height, self.width), dtype=np.uint8),
+                )
+            )
+            final_image = cv2.cvtColor(
+                np.where(mask, current_image, render_image), cv2.COLOR_BGRA2BGR
+            )
+        else:
+            final_image = self.current_image
+        self.writer.write(final_image)
+
 
 def assign_window(api: Api, window: webview.Window):
     api.set_window(window)
@@ -87,4 +129,4 @@ def assign_window(api: Api, window: webview.Window):
 if __name__ == "__main__":
     api = Api()
     window = webview.create_window("Avaverse", "index.html", js_api=api)
-    webview.start(assign_window, (api, window), http_server=True)
+    webview.start(assign_window, (api, window), http_server=True, debug=True)
